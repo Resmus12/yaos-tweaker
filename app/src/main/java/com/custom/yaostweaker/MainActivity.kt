@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Toast
 
 class MainActivity : Activity() {
@@ -14,86 +15,110 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val scroll = ScrollView(this)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(64, 64, 64, 64)
+            setPadding(48, 48, 48, 48)
         }
 
-        val btnApplyTweaks = Button(this).apply {
-            text = "1. Применить быстрые твики (Без анимаций + Сеть)"
-            isFocusable = true
-            setOnClickListener { applySystemTweaks() }
+        fun addBtn(title: String, onClick: () -> Unit) {
+            val btn = Button(this).apply {
+                text = title
+                isFocusable = true
+                setOnClickListener { onClick() }
+            }
+            layout.addView(btn)
         }
 
-        val btnOpenSettings = Button(this).apply {
-            text = "2. Открыть скрытые Настройки Android"
-            isFocusable = true
-            setOnClickListener { openHiddenActivity(Settings.ACTION_SETTINGS) }
+        // 1. Прямой вызов классических настроек AOSP (в обход оболочки YaOS)
+        addBtn("1. Корневые Настройки AOSP (Прямой вызов пакета)") {
+            launchDirectComponent(
+                "com.android.settings",
+                "com.android.settings.Settings"
+            )
         }
 
-        val btnOpenDev = Button(this).apply {
-            text = "3. Открыть меню Для разработчиков"
-            isFocusable = true
-            setOnClickListener { openHiddenActivity(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) }
+        // 2. Прямой вызов корневого экрана Android TV Settings
+        addBtn("2. Главные Настройки Android TV (MainSettings)") {
+            launchDirectComponent(
+                "com.android.tv.settings",
+                "com.android.tv.settings.MainSettings"
+            )
         }
 
-        val btnOpenApps = Button(this).apply {
-            text = "4. Открыть системный список приложений"
-            isFocusable = true
-            setOnClickListener { openHiddenActivity(Settings.ACTION_MANAGE_ALL_APPLICATIONS_SETTINGS) }
+        // 3. Принудительный вызов раздела Приложения и Разрешения
+        addBtn("3. Все системные приложения (ManageApplications)") {
+            launchDirectComponent(
+                "com.android.settings",
+                "com.android.settings.applications.ManageApplications"
+            )
         }
 
-        val btnOpenAccessibility = Button(this).apply {
-            text = "5. Открыть Специальные возможности"
-            isFocusable = true
-            setOnClickListener { openHiddenActivity(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+        // 4. Меню разработчика напрямую через компонент
+        addBtn("4. Меню Разработчика (Прямой вход)") {
+            launchDirectComponent(
+                "com.android.tv.settings",
+                "com.android.tv.settings.system.development.DevelopmentActivity"
+            )
         }
 
-        layout.addView(btnApplyTweaks)
-        layout.addView(btnOpenSettings)
-        layout.addView(btnOpenDev)
-        layout.addView(btnOpenApps)
-        layout.addView(btnOpenAccessibility)
+        // 5. Специальные возможности напрямую
+        addBtn("5. Специальные возможности (Accessibility)") {
+            openByAction(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        }
 
-        setContentView(layout)
-        btnApplyTweaks.requestFocus()
+        // 6. Показать список вообще всех системных экранов настроек в прошивке
+        addBtn("6. Просканировать и показать ВСЕ скрытые окна настроек") {
+            scanAndLaunchAllSettings(layout)
+        }
+
+        scroll.addView(layout)
+        setContentView(scroll)
     }
 
-    private fun applySystemTweaks() {
+    private fun launchDirectComponent(pkg: String, cls: String) {
         try {
-            val cr = contentResolver
-            Settings.Global.putFloat(cr, Settings.Global.WINDOW_ANIMATION_SCALE, 0.0f)
-            Settings.Global.putFloat(cr, Settings.Global.TRANSITION_ANIMATION_SCALE, 0.0f)
-            Settings.Global.putFloat(cr, Settings.Global.ANIMATOR_DURATION_SCALE, 0.0f)
-            Settings.Global.putInt(cr, Settings.Global.WIFI_SLEEP_POLICY, Settings.Global.WIFI_SLEEP_POLICY_NEVER)
-            Settings.Secure.putInt(cr, Settings.Secure.INSTALL_NON_MARKET_APPS, 1)
-
-            Toast.makeText(this, "Параметры успешно применены!", Toast.LENGTH_LONG).show()
-        } catch (e: SecurityException) {
-            Toast.makeText(
-                this,
-                "Нужны права! Выполните с ПК: adb shell pm grant com.custom.yaostweaker android.permission.WRITE_SECURE_SETTINGS",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun openHiddenActivity(action: String) {
-        try {
-            val intent = Intent(action).apply {
+            val intent = Intent().apply {
+                component = ComponentName(pkg, cls)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
         } catch (e: Exception) {
-            try {
-                val fallback = Intent().apply {
-                    component = ComponentName("com.android.settings", "com.android.settings.Settings")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                startActivity(fallback)
-            } catch (ex: Exception) {
-                Toast.makeText(this, "Ошибка: ${ex.message}", Toast.LENGTH_SHORT).show()
-            }
+            Toast.makeText(this, "Пакет $cls вырезан, пробую запасной метод...", Toast.LENGTH_SHORT).show()
+            openByAction(Settings.ACTION_SETTINGS)
         }
+    }
+
+    private fun openByAction(action: String) {
+        try {
+            startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Встроенный аналог Activity Launcher: находит все экраны внутри пакетов настроек ТВ
+    private fun scanAndLaunchAllSettings(layout: LinearLayout) {
+        val packagesToScan = listOf("com.android.settings", "com.android.tv.settings")
+        var count = 0
+        for (pkg in packagesToScan) {
+            try {
+                val info = packageManager.getPackageInfo(pkg, android.content.pm.PackageManager.GET_ACTIVITIES)
+                info.activities?.forEach { act ->
+                    if (act.exported) {
+                        count++
+                        val shortName = act.name.substringAfterLast(".")
+                        val btn = Button(this).apply {
+                            text = "[$pkg] $shortName"
+                            setOnClickListener {
+                                launchDirectComponent(pkg, act.name)
+                            }
+                        }
+                        layout.addView(btn)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        Toast.makeText(this, "Найдено открытых системных экранов: $count (крутите вниз!)", Toast.LENGTH_LONG).show()
     }
 }
