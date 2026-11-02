@@ -98,27 +98,33 @@ class MainActivity : Activity() {
     }
 
     // Встроенный аналог Activity Launcher: находит все экраны внутри пакетов настроек ТВ
-    private fun scanAndLaunchAllSettings(layout: LinearLayout) {
-        val packagesToScan = listOf("com.android.settings", "com.android.tv.settings")
+   private fun scanAndLaunchAllSettings(layout: LinearLayout) {
+        val pkgs = packageManager.getInstalledPackages(android.content.pm.PackageManager.GET_ACTIVITIES)
         var count = 0
-        for (pkg in packagesToScan) {
-            try {
-                val info = packageManager.getPackageInfo(pkg, android.content.pm.PackageManager.GET_ACTIVITIES)
-                info.activities?.forEach { act ->
-                    if (act.exported) {
+        for (pkgInfo in pkgs) {
+            val pkgName = pkgInfo.packageName
+            // Ищем во всех системных, заводских и яндексовских пакетах, кроме самого твикера
+            if (pkgName != packageName) {
+                pkgInfo.activities?.forEach { act ->
+                    if (act.exported && (act.name.contains("Setting", true) ||
+                                         act.name.contains("Debug", true) ||
+                                         act.name.contains("Factory", true) ||
+                                         act.name.contains("Menu", true) ||
+                                         act.name.contains("Launcher", true) ||
+                                         act.name.contains("Adb", true))) {
                         count++
                         val shortName = act.name.substringAfterLast(".")
                         val btn = Button(this).apply {
-                            text = "[$pkg] $shortName"
+                            text = "[$pkgName] $shortName"
                             setOnClickListener {
-                                launchDirectComponent(pkg, act.name)
+                                launchDirectComponent(pkgName, act.name)
                             }
                         }
                         layout.addView(btn)
                     }
                 }
-            } catch (_: Exception) {}
+            }
         }
-        Toast.makeText(this, "Найдено открытых системных экранов: $count (крутите вниз!)", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Найдено скрытых экранов во всей прошивке: $count", Toast.LENGTH_LONG).show()
     }
 }
